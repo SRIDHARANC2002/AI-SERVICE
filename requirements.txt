@@ -1,7 +1,11 @@
+numpy==1.26.4
 fastapi
 uvicorn[standard]
 python-multipart
-numpy
 opencv-python-headless
-torch
 facenet-pytorch
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+
+
