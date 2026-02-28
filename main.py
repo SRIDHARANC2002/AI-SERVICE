@@ -15,22 +15,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize models
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# 🔥 FORCE CPU ONLY (NO GPU)
+device = torch.device("cpu")
 
+print("🔄 Loading FaceNet models on CPU...")
+
+# Load models on CPU
 mtcnn = MTCNN(keep_all=False, device=device)
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+
+print("✅ Models loaded successfully on CPU")
 
 
 @app.get("/")
 def health():
-    return {"status": "Facenet AI Service Running"}
+    return {"status": "Facenet AI Service Running (CPU Mode)"}
 
 
 @app.post("/extract-embedding")
 async def extract_embedding(file: UploadFile = File(...)):
     try:
         contents = await file.read()
+
+        if not contents:
+            raise HTTPException(status_code=400, detail="Empty file")
 
         np_arr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
@@ -40,14 +48,16 @@ async def extract_embedding(file: UploadFile = File(...)):
 
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        face = mtcnn(img_rgb)
+        # Disable gradient tracking to reduce memory usage
+        with torch.no_grad():
+            face = mtcnn(img_rgb)
 
-        if face is None:
-            raise HTTPException(status_code=400, detail="Face not detected")
+            if face is None:
+                raise HTTPException(status_code=422, detail="Face not detected")
 
-        face = face.unsqueeze(0).to(device)
-
-        embedding = resnet(face).detach().cpu().numpy()[0]
+            face = face.unsqueeze(0).to(device)
+            embedding = resnet(face)
+            embedding = embedding.cpu().numpy()[0]
 
         # L2 normalize
         embedding = embedding / np.linalg.norm(embedding)
@@ -57,5 +67,9 @@ async def extract_embedding(file: UploadFile = File(...)):
             "dimensions": len(embedding)
         }
 
+    except HTTPException as http_err:
+        raise http_err
+
     except Exception as e:
+        print("🔥 ERROR:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
